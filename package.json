@@ -1,0 +1,17 @@
+{
+  "name": "nu-job-board-alerts",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Scrapes the Northwestern Student Job Board (Power BI report) and emails subscribers when new jobs are posted.",
+  "scripts": {
+    "scrape:test": "node scraper/scrapeJobs.js",
+    "check": "node scraper/checkAndNotify.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.4",
+    "dotenv": "^16.4.5",
+    "playwright": "^1.47.2",
+    "resend": "^4.0.1"
+  }
+}
