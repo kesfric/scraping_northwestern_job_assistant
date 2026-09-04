@@ -1,95 +1,57 @@
 # Northwestern Student Job Board Alerts
 
-Watches the [Northwestern Student Job Board](https://app.powerbi.com/view?r=eyJrIjoiMmUwNDhmNjEtMGRhMS00OTlhLWE1NjQtM2VkZjFlYTg3MzNhIiwidCI6IjdkNzZkMzYxLTgyNzctNDcwOC1hNDc3LTY0ZTgzNjZjZDFiYyIsImMiOjN9&pageName=ReportSection)
-(a Power BI report) and emails subscribers whenever a new job is posted.
+A small automation that watches the [Northwestern Student Job Board](https://app.powerbi.com/view?r=eyJrIjoiMmUwNDhmNjEtMGRhMS00OTlhLWE1NjQtM2VkZjFlYTg3MzNhIiwidCI6IjdkNzZkMzYxLTgyNzctNDcwOC1hNDc3LTY0ZTgzNjZjZDFiYyIsImMiOjN9&pageName=ReportSection) — a Power BI report listing on-campus student jobs — and emails subscribers the moment a new position is posted.
+
+## What it does
+
+Northwestern publishes its on-campus student job listings through an embedded Power BI report rather than a normal webpage or API. This project scrapes that report on a schedule, keeps track of which postings have already been seen, and sends an email to every subscribed student as soon as a new one shows up — so nobody has to keep the board open and refresh it by hand.
 
 ## How it works
 
-- `scraper/scrapeJobs.js` opens the Power BI report in a headless browser
-  (Playwright), scrolls through the virtualized results grid, and reads every
-  row via its accessibility roles (grid/row/gridcell) — the same tree a
-  screen reader would use. Each job has a stable **Job ID**, which is what we
-  diff against.
-- `scraper/checkAndNotify.js` runs the scraper, compares the scraped Job IDs
-  against what's stored in Supabase, inserts any new ones, and emails every
-  **confirmed** subscriber the new listings via Resend.
-- `.github/workflows/check-jobs.yml` runs `checkAndNotify.js` every 30
-  minutes on GitHub Actions — no server to keep running yourself.
-- `public/index.html` + `api/subscribe.js` + `api/confirm.js` +
-  `api/unsubscribe.js` are a small double-opt-in signup flow, meant to be
-  deployed as a Vercel project (static page + serverless functions, zero
-  build config needed).
-- Supabase (Postgres) is the shared database: the GitHub Action writes to it,
-  the Vercel-hosted signup form reads/writes to it. Both only ever use the
-  **service role key**, server-side — the browser never talks to Supabase
-  directly.
+- **The scraper** (`scraper/scrapeJobs.js`) opens the Power BI report in a headless browser (Playwright) and reads the listings through the grid's accessibility tree — the same structure a screen reader would use — instead of reverse-engineering Power BI's internal query API. Since the results grid is virtualized, the scraper scrolls through it programmatically until every row has been collected. Each job carries a stable **Job ID**, which is what the diff logic keys off of.
+- **The database** is a Supabase (Postgres) project shared between the two moving parts below. It stores every job ID seen so far, along with the subscriber list and each subscriber's confirmation status.
+- **The notifier** (`scraper/checkAndNotify.js`) runs the scraper, compares the results against what's already in Supabase, saves any new postings, and emails every confirmed subscriber through Resend.
+- **The schedule**: a GitHub Actions workflow (`.github/workflows/check-jobs.yml`) runs the notifier automatically every 30 minutes, so nothing needs to run continuously on a server.
+- **The signup form** (`public/index.html`, backed by `api/subscribe.js`, `api/confirm.js`, and `api/unsubscribe.js`) is a small double opt-in flow deployed as a Vercel project: a visitor enters their email, confirms it through a link sent to their inbox, and can unsubscribe at any time through a link included in every alert.
 
-## One-time setup
+## Architecture at a glance
 
-### 1. Supabase
+```
+Power BI report → Playwright scraper → Supabase (jobs + subscribers) → Resend → subscriber inboxes
+                        ▲ triggered every 30 min by GitHub Actions
 
-1. Create a new (free) project at [supabase.com](https://supabase.com) —
-   use a fresh project rather than reusing an unrelated one.
-2. In the SQL Editor, run [`db/schema.sql`](db/schema.sql).
-3. Settings -> API: copy the **Project URL** and the **service_role** key
-   (not the anon/public key — this app needs write access and never runs in
-   the browser).
+Visitor → Vercel-hosted signup form → Supabase (subscribers)
+```
 
-### 2. Resend (email sending)
+## Project layout
 
-1. Create a free account at [resend.com](https://resend.com).
-2. For real use, verify a sending domain (Resend walks you through adding a
-   couple of DNS records) and set `EMAIL_FROM` to an address on that domain,
-   e.g. `Job Alerts <jobs@yourdomain.com>`.
-3. Until you verify a domain, Resend's sandbox `onboarding@resend.dev`
-   sender only delivers to the email address on your own Resend account —
-   fine for testing, not for real subscribers.
-4. Copy the API key from the Resend dashboard.
+| Path | Purpose |
+|---|---|
+| `scraper/` | The Playwright scraper and the scrape → diff → notify script |
+| `lib/` | Shared Supabase and Resend clients |
+| `api/` | Vercel serverless functions behind the signup form |
+| `public/` | The signup page and its confirmation/unsubscribe result pages |
+| `db/schema.sql` | The two Supabase tables (`jobs`, `subscribers`) this project relies on |
+| `.github/workflows/` | The scheduled job that keeps the whole thing running |
 
-### 3. Deploy the signup form (Vercel)
+## Design notes
 
-1. Push this project to a GitHub repo.
-2. Import it into [Vercel](https://vercel.com) (framework preset: "Other" —
-   no build step needed, it just serves `public/` and `api/`).
-3. Add environment variables in the Vercel project settings:
-   `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `RESEND_API_KEY`,
-   `EMAIL_FROM`, `SITE_URL` (your Vercel deployment URL, no trailing slash).
-4. Deploy. The signup form is now live at your Vercel URL.
+- The scraper doesn't authenticate against anything — the Power BI `/view` link is a public share link, so no credentials are needed to read it.
+- Subscribers go through double opt-in, and every alert includes an unsubscribe link, so nobody ends up subscribed without asking to be.
+- Every write to Supabase — from both the scheduled scraper and the signup form — goes through a server-side secret key. The browser never talks to the database directly, and Row Level Security is enabled with no public policies.
+- If Power BI ever changes the report's column order, the `COLUMNS` array in `scraper/scrapeJobs.js` needs to be updated to match.
 
-### 4. Schedule the scraper (GitHub Actions)
-
-In the GitHub repo -> Settings -> Secrets and variables -> Actions, add:
-`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `RESEND_API_KEY`, `EMAIL_FROM`,
-`SITE_URL` (same values as above), and optionally `POWERBI_REPORT_URL` if
-you ever point this at a different report.
-
-The workflow in `.github/workflows/check-jobs.yml` runs every 30 minutes.
-Adjust the cron expression if you want a different cadence. You can also
-trigger it manually from the Actions tab (`workflow_dispatch`).
-
-## Local development
+## Running it locally
 
 ```bash
 npm install
 npx playwright install chromium
 
-# Try the scraper alone, no DB/email needed — prints scraped jobs as JSON
+# Scraper only, no database or email needed — prints the current listings as JSON
 npm run scrape:test
 
 # Full run: scrape, diff against Supabase, email confirmed subscribers
-# (needs a .env file — copy .env.example to .env and fill it in)
 npm run check
 ```
 
-To test the signup form locally, use the Vercel CLI: `npx vercel dev`
-(it reads the same env vars from `.env.local`).
-
-## Notes
-
-- The scraper has no login step — the Power BI `/view` link is a public
-  share link, so no credentials are needed or stored.
-- Subscribers go through double opt-in (confirm-by-email) before being
-  notified, and every alert includes an unsubscribe link, to avoid signing
-  up people who didn't ask for it.
-- If Power BI changes the report's column order or layout, update the
-  `COLUMNS` array in `scraper/scrapeJobs.js` to match.
+Both commands read configuration from a local `.env` file (see `.env.example` for the required variables). The signup form can be run locally with the Vercel CLI (`npx vercel dev`), which reads the same variables from `.env.local`.
