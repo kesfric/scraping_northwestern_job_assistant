@@ -11,7 +11,7 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",
     "dotenv": "^16.4.5",
-    "playwright": "^1.47.2",
-    "resend": "^4.0.1"
+    "nodemailer": "^10.0.9",
+    "playwright": "^1.47.2"
   }
 }

@@ -24,7 +24,8 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
           SITE_URL: ${{ secrets.SITE_URL }}
           POWERBI_REPORT_URL: ${{ secrets.POWERBI_REPORT_URL }}

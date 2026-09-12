@@ -10,14 +10,14 @@ Northwestern publishes its on-campus student job listings through an embedded Po
 
 - **The scraper** (`scraper/scrapeJobs.js`) opens the Power BI report in a headless browser (Playwright) and reads the listings through the grid's accessibility tree — the same structure a screen reader would use — instead of reverse-engineering Power BI's internal query API. Since the results grid is virtualized, the scraper scrolls through it programmatically until every row has been collected. Each job carries a stable **Job ID**, which is what the diff logic keys off of.
 - **The database** is a Supabase (Postgres) project shared between the two moving parts below. It stores every job ID seen so far, along with the subscriber list and each subscriber's confirmation status.
-- **The notifier** (`scraper/checkAndNotify.js`) runs the scraper, compares the results against what's already in Supabase, saves any new postings, and emails every confirmed subscriber through Resend.
+- **The notifier** (`scraper/checkAndNotify.js`) runs the scraper, compares the results against what's already in Supabase, saves any new postings, and emails every confirmed subscriber through Gmail SMTP.
 - **The schedule**: a GitHub Actions workflow (`.github/workflows/check-jobs.yml`) runs the notifier automatically every 30 minutes, so nothing needs to run continuously on a server.
 - **The signup form** (`public/index.html`, backed by `api/subscribe.js`, `api/confirm.js`, and `api/unsubscribe.js`) is a small double opt-in flow deployed as a Vercel project: a visitor enters their email, confirms it through a link sent to their inbox, and can unsubscribe at any time through a link included in every alert.
 
 ## Architecture at a glance
 
 ```
-Power BI report → Playwright scraper → Supabase (jobs + subscribers) → Resend → subscriber inboxes
+Power BI report → Playwright scraper → Supabase (jobs + subscribers) → Gmail SMTP → subscriber inboxes
                         ▲ triggered every 30 min by GitHub Actions
 
 Visitor → Vercel-hosted signup form → Supabase (subscribers)
@@ -28,7 +28,7 @@ Visitor → Vercel-hosted signup form → Supabase (subscribers)
 | Path | Purpose |
 |---|---|
 | `scraper/` | The Playwright scraper and the scrape → diff → notify script |
-| `lib/` | Shared Supabase and Resend clients |
+| `lib/` | Shared Supabase and Gmail SMTP clients |
 | `api/` | Vercel serverless functions behind the signup form |
 | `public/` | The signup page and its confirmation/unsubscribe result pages |
 | `db/schema.sql` | The two Supabase tables (`jobs`, `subscribers`) this project relies on |
